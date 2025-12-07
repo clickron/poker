@@ -249,6 +249,22 @@ class PokerGame {
         this.gameStarted = false;
         this.handInProgress = false;
 
+        // Player tracking for AI exploitation
+        this.playerStats = {
+            handsPlayed: 0,
+            showdowns: 0,
+            foldToAggression: 0,      // Times folded when facing a raise
+            facedAggression: 0,        // Times faced a raise
+            bluffsRevealed: 0,         // Times caught bluffing (weak hand, big bet)
+            valueRevealed: 0,          // Times shown strong hand with big bet
+            allInBluffs: 0,            // All-ins with weak hands
+            allInValue: 0,             // All-ins with strong hands
+            avgBetStrength: [],        // Array of {betSize, handStrength} for correlation
+            preflopRaiseRate: 0,       // How often player raises preflop
+            preflopRaises: 0,
+            preflopOpportunities: 0
+        };
+
         this.initPlayers();
         this.bindEvents();
         this.updateUI();
@@ -421,6 +437,11 @@ class PokerGame {
 
     executeAction(player, action, raiseAmount = 0) {
         const callAmount = this.currentBet - player.currentBet;
+
+        // Track human player actions for AI exploitation
+        if (player.isHuman) {
+            this.trackHumanAction(action, callAmount, raiseAmount);
+        }
 
         switch (action) {
             case 'fold':
@@ -722,6 +743,9 @@ class PokerGame {
             player.chips += amount;
         }
 
+        // Track showdown for AI learning
+        this.trackShowdownResult(results);
+
         // Find overall winners for display message
         const bestValue = results[0].hand.rank.value;
         const overallWinners = results.filter(r => r.hand.rank.value === bestValue).map(r => r.player);
@@ -823,6 +847,98 @@ class PokerGame {
             document.getElementById('next-hand-btn').style.display = 'inline-block';
         }
         document.getElementById('new-game-btn').style.display = 'inline-block';
+    }
+
+    // Track human player actions for AI to learn from
+    trackHumanAction(action, callAmount, raiseAmount) {
+        const stats = this.playerStats;
+
+        // Track fold to aggression (folding when facing a raise)
+        if (action === 'fold' && callAmount > this.bigBlind) {
+            stats.facedAggression++;
+            stats.foldToAggression++;
+        } else if (callAmount > this.bigBlind && (action === 'call' || action === 'raise' || action === 'allin')) {
+            stats.facedAggression++;
+        }
+
+        // Track preflop raising tendencies
+        if (this.phase === 'preflop') {
+            stats.preflopOpportunities++;
+            if (action === 'raise' || action === 'allin') {
+                stats.preflopRaises++;
+            }
+        }
+
+        // Store bet sizing for later correlation with hand strength
+        if (action === 'raise' || action === 'allin') {
+            const human = this.players[0];
+            const betSize = action === 'allin' ? human.chips + human.currentBet : raiseAmount;
+            // We'll correlate this with hand strength at showdown
+            human.lastBigBet = { amount: betSize, phase: this.phase };
+        }
+    }
+
+    // Track showdown results to learn player tendencies
+    trackShowdownResult(results) {
+        const human = this.players[0];
+        const stats = this.playerStats;
+
+        // Only track if human went to showdown (didn't fold)
+        if (human.folded || human.holeCards.length !== 2) return;
+
+        stats.showdowns++;
+
+        const humanResult = results.find(r => r.player === human);
+        if (!humanResult) return;
+
+        const handStrength = humanResult.hand.rank.value / 9000000; // Normalize to 0-1
+
+        // Check if they made a big bet with this hand
+        if (human.lastBigBet) {
+            const betRatio = human.lastBigBet.amount / (this.pot - human.lastBigBet.amount);
+            stats.avgBetStrength.push({ betSize: betRatio, handStrength });
+
+            // Classify as bluff or value
+            if (handStrength < 0.3 && betRatio > 0.5) {
+                stats.bluffsRevealed++;
+            } else if (handStrength > 0.5 && betRatio > 0.5) {
+                stats.valueRevealed++;
+            }
+
+            // Track all-in tendencies
+            if (human.allIn) {
+                if (handStrength < 0.35) {
+                    stats.allInBluffs++;
+                } else {
+                    stats.allInValue++;
+                }
+            }
+        }
+    }
+
+    // Calculate player tendencies for AI to use
+    getPlayerTendencies() {
+        const stats = this.playerStats;
+        return {
+            // How often they fold to aggression (0-1, higher = folds more)
+            foldToAggressionRate: stats.facedAggression > 0
+                ? stats.foldToAggression / stats.facedAggression
+                : 0.5,
+            // How often they bluff vs value bet (0-1, higher = more bluffs)
+            bluffRate: (stats.bluffsRevealed + stats.valueRevealed) > 0
+                ? stats.bluffsRevealed / (stats.bluffsRevealed + stats.valueRevealed)
+                : 0.3,
+            // How often they all-in bluff
+            allInBluffRate: (stats.allInBluffs + stats.allInValue) > 0
+                ? stats.allInBluffs / (stats.allInBluffs + stats.allInValue)
+                : 0.3,
+            // Preflop aggression
+            preflopRaiseRate: stats.preflopOpportunities > 0
+                ? stats.preflopRaises / stats.preflopOpportunities
+                : 0.3,
+            // Sample size (more data = more confident)
+            sampleSize: stats.showdowns
+        };
     }
 
     aiTurn() {
@@ -938,25 +1054,35 @@ class PokerGame {
         const isLatePosition = this.currentPlayerIndex > this.dealerIndex;
         const rand = Math.random();
 
+        // Get human player tendencies for exploitation
+        const tendencies = this.getPlayerTendencies();
+
         switch (style) {
             case 'aggressive':
-                return this.aggressiveDecision(handStrength, callAmount, potOdds, rand);
+                return this.aggressiveDecision(handStrength, callAmount, potOdds, rand, tendencies);
             case 'tight':
-                return this.tightDecision(handStrength, callAmount, potOdds, rand);
+                return this.tightDecision(handStrength, callAmount, potOdds, rand, tendencies);
             case 'loose':
-                return this.looseDecision(handStrength, callAmount, potOdds, rand);
+                return this.looseDecision(handStrength, callAmount, potOdds, rand, tendencies);
             case 'tricky':
-                return this.trickyDecision(handStrength, callAmount, potOdds, rand, isLatePosition);
+                return this.trickyDecision(handStrength, callAmount, potOdds, rand, isLatePosition, tendencies);
             default:
                 return { action: 'fold', sizing: 0 };
         }
     }
 
-    aggressiveDecision(strength, callAmount, potOdds, rand) {
+    aggressiveDecision(strength, callAmount, potOdds, rand, tendencies) {
         // Aggressive: bets and raises frequently, applies pressure
+        // Exploit: bluff more if player folds to aggression often
+        const bluffMore = tendencies.sampleSize >= 3 && tendencies.foldToAggressionRate > 0.5;
+
         if (callAmount === 0) {
             if (strength > 0.25 || rand > 0.7) {
                 return { action: 'raise', sizing: rand > 0.5 ? 'big' : 'medium' };
+            }
+            // Bluff more against tight/foldy players
+            if (bluffMore && rand > 0.5) {
+                return { action: 'raise', sizing: 'medium' };
             }
             return { action: 'check' };
         } else {
@@ -974,15 +1100,19 @@ class PokerGame {
                 if (rand > 0.4 || callAmount <= this.bigBlind * 3) return { action: 'call' };
                 return { action: 'fold' };
             } else {
-                // Weak - occasional bluff
-                if (rand > 0.85) return { action: 'raise', sizing: 'big' }; // Bluff
+                // Weak - bluff more against foldy players
+                const bluffThreshold = bluffMore ? 0.65 : 0.85;
+                if (rand > bluffThreshold) return { action: 'raise', sizing: 'big' };
                 return { action: 'fold' };
             }
         }
     }
 
-    tightDecision(strength, callAmount, potOdds, rand) {
+    tightDecision(strength, callAmount, potOdds, rand, tendencies) {
         // Tight: only plays premium hands, but plays them strong
+        // Exploit: call more against players who bluff a lot
+        const callMoreBluffs = tendencies.sampleSize >= 3 && tendencies.bluffRate > 0.4;
+
         if (callAmount === 0) {
             if (strength > 0.60) {
                 return { action: 'raise', sizing: 'medium' };
@@ -1003,6 +1133,10 @@ class PokerGame {
                 // Decent - call if price is right
                 if (callAmount <= this.bigBlind * 4) return { action: 'call' };
                 return { action: 'fold' };
+            } else if (callMoreBluffs && strength > 0.25) {
+                // Call lighter against known bluffers
+                if (callAmount <= this.bigBlind * 3) return { action: 'call' };
+                return { action: 'fold' };
             } else {
                 // Not worth it
                 return { action: 'fold' };
@@ -1010,8 +1144,11 @@ class PokerGame {
         }
     }
 
-    looseDecision(strength, callAmount, potOdds, rand) {
+    looseDecision(strength, callAmount, potOdds, rand, tendencies) {
         // Loose: plays many hands, calls too much, rarely folds
+        // Exploit: call all-ins lighter if player bluffs all-ins often
+        const callAllInLight = tendencies.sampleSize >= 3 && tendencies.allInBluffRate > 0.35;
+
         if (callAmount === 0) {
             if (strength > 0.50) {
                 return { action: 'raise', sizing: 'small' };
@@ -1027,6 +1164,9 @@ class PokerGame {
                 // Call almost anything
                 if (callAmount <= this.bigBlind * 6 || rand > 0.3) return { action: 'call' };
                 return { action: 'call' };
+            } else if (callAllInLight && strength > 0.20) {
+                // Call all-ins with weaker hands if player bluffs all-ins a lot
+                return { action: 'call' };
             } else {
                 // Even weak hands get called sometimes
                 if (callAmount <= this.bigBlind * 2 || rand > 0.5) return { action: 'call' };
@@ -1035,8 +1175,14 @@ class PokerGame {
         }
     }
 
-    trickyDecision(strength, callAmount, potOdds, rand, isLatePosition) {
+    trickyDecision(strength, callAmount, potOdds, rand, isLatePosition, tendencies) {
         // Tricky: mixes up play, slow-plays monsters, bluffs with nothing
+        // Diana is the best at exploiting tendencies
+        const hasData = tendencies.sampleSize >= 3;
+        const playerFoldsALot = hasData && tendencies.foldToAggressionRate > 0.5;
+        const playerBluffsALot = hasData && tendencies.bluffRate > 0.4;
+        const playerAllInBluffs = hasData && tendencies.allInBluffRate > 0.35;
+
         if (callAmount === 0) {
             if (strength > 0.80) {
                 // Monster - sometimes slow play
@@ -1045,6 +1191,9 @@ class PokerGame {
             } else if (strength > 0.45) {
                 if (rand > 0.4) return { action: 'raise', sizing: rand > 0.7 ? 'big' : 'medium' };
                 return { action: 'check' };
+            } else if (playerFoldsALot && rand > 0.4) {
+                // Exploit foldy players with more bluffs
+                return { action: 'raise', sizing: 'big' };
             } else if (rand > 0.75 && isLatePosition) {
                 // Position bluff
                 return { action: 'raise', sizing: 'medium' };
@@ -1059,12 +1208,18 @@ class PokerGame {
                 if (rand > 0.5) return { action: 'raise', sizing: 'medium' };
                 return { action: 'call' };
             } else if (strength > 0.30) {
-                // Float or fold randomly
-                if (rand > 0.45) return { action: 'call' };
+                // Float or fold randomly - but call more against bluffers
+                const callThreshold = playerBluffsALot ? 0.3 : 0.45;
+                if (rand > callThreshold) return { action: 'call' };
+                return { action: 'fold' };
+            } else if (playerAllInBluffs && strength > 0.20) {
+                // Call all-ins light against known all-in bluffers
+                if (rand > 0.4) return { action: 'call' };
                 return { action: 'fold' };
             } else {
-                // Sometimes big bluff
-                if (rand > 0.88) return { action: 'raise', sizing: 'big' };
+                // Sometimes big bluff - more often against foldy players
+                const bluffThreshold = playerFoldsALot ? 0.6 : 0.88;
+                if (rand > bluffThreshold) return { action: 'raise', sizing: 'big' };
                 if (rand > 0.75 && callAmount <= this.bigBlind * 2) return { action: 'call' };
                 return { action: 'fold' };
             }
