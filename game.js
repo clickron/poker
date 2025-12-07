@@ -265,6 +265,166 @@ class PokerGame {
             preflopOpportunities: 0
         };
 
+        // Chat messages for each AI personality
+        this.chatMessages = {
+            alice: {
+                winPot: [
+                    "Too easy.",
+                    "Thanks for the donation!",
+                    "You're making this too simple.",
+                    "Is that all you've got?",
+                    "My grandma plays tougher than you."
+                ],
+                youFold: [
+                    "Smart move. You were beat.",
+                    "Run away, little one.",
+                    "That's right, fold.",
+                    "Couldn't handle the heat?",
+                    "Knew you didn't have it."
+                ],
+                bluffWin: [
+                    "You don't want to see what I had...",
+                    "Good fold... or was it?",
+                    "I'll never tell.",
+                    "Scared money don't make money."
+                ],
+                allInWin: [
+                    "ALL IN BABY! That's how it's done!",
+                    "You thought you had me? Cute.",
+                    "Boom! Take a seat."
+                ],
+                taunt: [
+                    "You playing poker or just clicking buttons?",
+                    "Wake up, it's your turn to lose.",
+                    "I smell fear.",
+                    "Let's speed this up, I have places to be."
+                ],
+                losingStreak: [
+                    "Having fun yet?",
+                    "Don't worry, it gets worse.",
+                    "Maybe try Go Fish instead?",
+                    "You can always quit, you know."
+                ]
+            },
+            bob: {
+                winPot: [
+                    "Patience pays.",
+                    "As expected.",
+                    "Calculated.",
+                    "Solid play wins."
+                ],
+                youFold: [
+                    "Wise decision.",
+                    "You're learning.",
+                    "Discretion is the better part of valor.",
+                    "Good fold."
+                ],
+                bluffWin: [
+                    "...",
+                    "Interesting.",
+                    "Hmm."
+                ],
+                allInWin: [
+                    "I only bet when I know.",
+                    "Premium hands win.",
+                    "That's why you wait for the right cards."
+                ],
+                taunt: [
+                    "You play too many hands.",
+                    "Discipline wins tournaments.",
+                    "You should fold more.",
+                    "Quality over quantity."
+                ],
+                losingStreak: [
+                    "Perhaps a different strategy?",
+                    "Variance is part of the game.",
+                    "Study more, play less.",
+                    "Tight is right."
+                ]
+            },
+            charlie: {
+                winPot: [
+                    "Oops, I win again!",
+                    "Lucky me!",
+                    "Was that good? I'm still learning!",
+                    "Hehe, sorry not sorry!",
+                    "Woohoo!"
+                ],
+                youFold: [
+                    "Aww, you're leaving?",
+                    "I was just having fun!",
+                    "More for me I guess!",
+                    "Don't be scared!"
+                ],
+                bluffWin: [
+                    "Did I do that right?",
+                    "I have no idea what I'm doing lol",
+                    "Was that a bluff? What's a bluff?"
+                ],
+                allInWin: [
+                    "YOLO!!!",
+                    "Did I win? I won!",
+                    "That was exciting!",
+                    "Let's do that again!"
+                ],
+                taunt: [
+                    "This is fun!",
+                    "I like this game!",
+                    "Are you having fun too?",
+                    "Wheee!"
+                ],
+                losingStreak: [
+                    "Rough day huh?",
+                    "It's okay, I lose a lot too!",
+                    "Cheer up, buddy!",
+                    "Want me to go easy on you? Just kidding!"
+                ]
+            },
+            diana: {
+                winPot: [
+                    "Read you like a book.",
+                    "Predictable.",
+                    "I knew you'd do that.",
+                    "You're easier than I thought."
+                ],
+                youFold: [
+                    "I had nothing.",
+                    "Or did I?",
+                    "You'll never know.",
+                    "Scared of the monster under the bed?",
+                    "That's exactly what I wanted."
+                ],
+                bluffWin: [
+                    "Pure air. Thanks.",
+                    "I had literally nothing.",
+                    "Seven high. You folded to seven high.",
+                    "Bluffing is an art."
+                ],
+                allInWin: [
+                    "The soul read.",
+                    "I knew. I always know.",
+                    "Your eyes give everything away.",
+                    "Too easy to put you on a hand."
+                ],
+                taunt: [
+                    "I know what you're going to do.",
+                    "You have a tell, by the way.",
+                    "Thinking about bluffing? I can tell.",
+                    "Your patterns are obvious.",
+                    "I've already figured you out."
+                ],
+                losingStreak: [
+                    "Tilted yet?",
+                    "I can see you making mistakes now.",
+                    "Emotions are a weakness.",
+                    "You're playing scared.",
+                    "The more you lose, the worse you play."
+                ]
+            }
+        };
+
+        this.humanLosses = 0; // Track consecutive losses for tilt messages
+
         this.initPlayers();
         this.bindEvents();
         this.updateUI();
@@ -347,6 +507,7 @@ class PokerGame {
         this.communityCards = [];
         this.pot = 0;
         this.sidePots = [];
+        this.lastAggressor = null; // Reset for chat tracking
         this.currentBet = 0;
         this.minRaise = this.bigBlind;
         this.phase = 'preflop';
@@ -447,6 +608,10 @@ class PokerGame {
             case 'fold':
                 player.folded = true;
                 this.showMessage(`${player.name} folds.`, 'action-message');
+                // Trigger fold chat if human folded to AI's bet
+                if (player.isHuman && this.lastAggressor) {
+                    this.triggerFoldChat(player, this.lastAggressor);
+                }
                 break;
 
             case 'check':
@@ -465,6 +630,7 @@ class PokerGame {
                 this.pot += totalRaise;
                 this.minRaise = raiseAmount - this.currentBet;
                 this.currentBet = raiseAmount;
+                this.lastAggressor = player; // Track who raised for chat
                 // Reset hasActed for all other players
                 for (const p of this.players) {
                     if (p !== player && !p.folded && !p.allIn) {
@@ -481,6 +647,7 @@ class PokerGame {
                 if (allInAmount > this.currentBet) {
                     this.minRaise = Math.max(this.minRaise, allInAmount - this.currentBet);
                     this.currentBet = allInAmount;
+                    this.lastAggressor = player; // Track who raised for chat
                     for (const p of this.players) {
                         if (p !== player && !p.folded && !p.allIn) {
                             p.hasActed = false;
@@ -648,6 +815,9 @@ class PokerGame {
         // Highlight winner
         document.getElementById(`player-${winner.id}`).classList.add('winner');
 
+        // Trigger winner chat
+        this.triggerWinChat(winner, winner.allIn);
+
         // Check if game is over
         const playersWithChips = this.players.filter(p => p.chips > 0);
         if (playersWithChips.length <= 1) {
@@ -791,6 +961,12 @@ class PokerGame {
             document.getElementById(`player-${winner.id}`).classList.add('winner');
         }
 
+        // Trigger winner chat - check if any winner was all-in
+        const wasAllIn = winners.some(w => w.allIn);
+        for (const winner of winners) {
+            this.triggerWinChat(winner, wasAllIn);
+        }
+
         this.checkGameOver();
     }
 
@@ -829,6 +1005,11 @@ class PokerGame {
             document.getElementById(`player-${winner.id}`).classList.add('winner');
         }
 
+        // Trigger winner chat
+        for (const winner of winners) {
+            this.triggerWinChat(winner, false);
+        }
+
         this.checkGameOver();
     }
 
@@ -847,6 +1028,122 @@ class PokerGame {
             document.getElementById('next-hand-btn').style.display = 'inline-block';
         }
         document.getElementById('new-game-btn').style.display = 'inline-block';
+    }
+
+    // Chat system for AI trash talk
+    showChat(playerName, message) {
+        const chatArea = document.getElementById('chat-area');
+        const bubble = document.createElement('div');
+        bubble.className = `chat-bubble ${playerName.toLowerCase()}`;
+        bubble.innerHTML = `
+            <div class="chat-name">${playerName}</div>
+            <div class="chat-message">${message}</div>
+        `;
+        chatArea.appendChild(bubble);
+
+        // Remove after animation completes (5 seconds)
+        setTimeout(() => {
+            if (bubble.parentNode) {
+                bubble.remove();
+            }
+        }, 5000);
+
+        // Keep only last 4 messages
+        while (chatArea.children.length > 4) {
+            chatArea.removeChild(chatArea.firstChild);
+        }
+    }
+
+    getRandomMessage(playerName, category) {
+        const messages = this.chatMessages[playerName.toLowerCase()]?.[category];
+        if (!messages || messages.length === 0) return null;
+        return messages[Math.floor(Math.random() * messages.length)];
+    }
+
+    aiChat(player, event, extraInfo = {}) {
+        // Don't chat if player is out or it's the human
+        if (player.isHuman || player.chips <= 0) return;
+
+        // 40% base chance to chat (don't spam)
+        if (Math.random() > 0.4) return;
+
+        let message = null;
+        const name = player.name;
+
+        switch (event) {
+            case 'winPot':
+                // Higher chance to taunt when winning
+                if (Math.random() > 0.3) {
+                    message = this.getRandomMessage(name, 'winPot');
+                }
+                break;
+
+            case 'youFold':
+                // Player folded to this AI's bet
+                if (extraInfo.wasBluff && Math.random() > 0.5) {
+                    message = this.getRandomMessage(name, 'bluffWin');
+                } else {
+                    message = this.getRandomMessage(name, 'youFold');
+                }
+                break;
+
+            case 'allInWin':
+                // Won an all-in confrontation
+                message = this.getRandomMessage(name, 'allInWin');
+                break;
+
+            case 'taunt':
+                // Random taunt during play
+                if (Math.random() > 0.7) {
+                    message = this.getRandomMessage(name, 'taunt');
+                }
+                break;
+
+            case 'losingStreak':
+                // Human is on a losing streak
+                if (this.humanLosses >= 3 && Math.random() > 0.5) {
+                    message = this.getRandomMessage(name, 'losingStreak');
+                }
+                break;
+        }
+
+        if (message) {
+            // Slight delay for natural feel
+            setTimeout(() => this.showChat(name, message), 500 + Math.random() * 1000);
+        }
+    }
+
+    // Trigger chat from various game events
+    triggerWinChat(winner, wasAllIn = false) {
+        if (winner.isHuman) {
+            this.humanLosses = 0; // Reset losing streak
+            return;
+        }
+
+        this.humanLosses++;
+
+        // Winner talks
+        if (wasAllIn) {
+            this.aiChat(winner, 'allInWin');
+        } else {
+            this.aiChat(winner, 'winPot');
+        }
+
+        // Maybe someone else piles on if human is losing
+        if (this.humanLosses >= 3) {
+            const others = this.players.filter(p => !p.isHuman && p !== winner && p.chips > 0);
+            if (others.length > 0) {
+                const piler = others[Math.floor(Math.random() * others.length)];
+                setTimeout(() => this.aiChat(piler, 'losingStreak'), 2000);
+            }
+        }
+    }
+
+    triggerFoldChat(folder, lastAggressor) {
+        // If human folded to an AI's bet
+        if (folder.isHuman && lastAggressor && !lastAggressor.isHuman) {
+            this.aiChat(lastAggressor, 'youFold', { wasBluff: lastAggressor.handStrength < 0.3 });
+        }
     }
 
     // Track human player actions for AI to learn from
@@ -951,9 +1248,15 @@ class PokerGame {
 
         // Evaluate actual hand strength based on current phase
         const handStrength = this.evaluateHandStrength(player);
+        player.handStrength = handStrength; // Store for bluff detection in chat
 
         // Get style-based decision
         const decision = this.getStyledDecision(player, handStrength, callAmount);
+
+        // Occasional random taunt (5% chance)
+        if (Math.random() > 0.95) {
+            this.aiChat(player, 'taunt');
+        }
 
         if (decision.action === 'raise') {
             const raiseAmount = this.calculateRaiseAmount(player, handStrength, decision.sizing);

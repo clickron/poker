@@ -400,6 +400,89 @@ h1 {
     text-align: center;
 }
 
+/* Chat Area */
+.chat-area {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 300px;
+    max-height: 200px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+}
+
+.chat-bubble {
+    background: rgba(0, 0, 0, 0.85);
+    padding: 10px 15px;
+    border-radius: 12px;
+    border-left: 4px solid;
+    animation: chatSlideIn 0.3s ease-out, chatFadeOut 0.5s ease-in 4.5s forwards;
+    pointer-events: auto;
+}
+
+.chat-bubble .chat-name {
+    font-weight: bold;
+    font-size: 0.85rem;
+    margin-bottom: 3px;
+}
+
+.chat-bubble .chat-message {
+    font-size: 0.95rem;
+    color: #fff;
+}
+
+/* Player chat colors */
+.chat-bubble.alice {
+    border-left-color: #ef4444;
+}
+.chat-bubble.alice .chat-name {
+    color: #ef4444;
+}
+
+.chat-bubble.bob {
+    border-left-color: #3b82f6;
+}
+.chat-bubble.bob .chat-name {
+    color: #3b82f6;
+}
+
+.chat-bubble.charlie {
+    border-left-color: #22c55e;
+}
+.chat-bubble.charlie .chat-name {
+    color: #22c55e;
+}
+
+.chat-bubble.diana {
+    border-left-color: #a855f7;
+}
+.chat-bubble.diana .chat-name {
+    color: #a855f7;
+}
+
+@keyframes chatSlideIn {
+    from {
+        opacity: 0;
+        transform: translateX(50px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes chatFadeOut {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
 /* Animations */
 @keyframes dealCard {
     from {
