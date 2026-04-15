@@ -702,7 +702,13 @@ class PokerGame {
                 this.updateUI();
 
                 if (!player.isHuman) {
-                    setTimeout(() => this.aiTurn(), 800);
+                    // Instant AI turns if human has folded
+                    const human = this.players[0];
+                    if (human.folded) {
+                        this.aiTurn();
+                    } else {
+                        setTimeout(() => this.aiTurn(), 800);
+                    }
                 }
                 return;
             }
@@ -748,9 +754,15 @@ class PokerGame {
 
             // Check if all remaining players are all-in
             const canAct = this.players.filter(p => !p.folded && !p.allIn && p.chips > 0);
+            const human = this.players[0];
+
             if (canAct.length <= 1) {
-                // Run out remaining cards
-                setTimeout(() => this.nextPhase(), 1000);
+                // Run out remaining cards - instant if human folded
+                if (human.folded) {
+                    this.nextPhase();
+                } else {
+                    setTimeout(() => this.nextPhase(), 1000);
+                }
                 this.updateUI();
                 return;
             }
@@ -760,33 +772,52 @@ class PokerGame {
             this.updateUI();
 
             if (!this.players[this.currentPlayerIndex].isHuman) {
-                setTimeout(() => this.aiTurn(), 1000);
+                // Instant AI turns if human has folded
+                if (human.folded) {
+                    this.aiTurn();
+                } else {
+                    setTimeout(() => this.aiTurn(), 1000);
+                }
             }
         }
     }
 
     runOutBoard(winner) {
-        // Deal remaining community cards with delay
+        // Deal remaining community cards
         this.handInProgress = false;
 
-        const dealRemaining = () => {
-            if (this.communityCards.length < 5) {
+        // Check if human folded - if so, deal instantly
+        const human = this.players[0];
+        const instantDeal = human.folded;
+
+        if (instantDeal) {
+            // Deal all remaining cards immediately
+            while (this.communityCards.length < 5) {
                 if (this.communityCards.length === 0) {
-                    // Deal flop
                     this.communityCards.push(this.deck.deal(), this.deck.deal(), this.deck.deal());
                 } else {
-                    // Deal turn or river
                     this.communityCards.push(this.deck.deal());
                 }
-                this.updateUI();
-                setTimeout(dealRemaining, 600);
-            } else {
-                // All cards dealt - show final result
-                this.endHandWithReveal(winner);
             }
-        };
-
-        setTimeout(dealRemaining, 400);
+            this.updateUI();
+            this.endHandWithReveal(winner);
+        } else {
+            // Normal delay for when human is still in
+            const dealRemaining = () => {
+                if (this.communityCards.length < 5) {
+                    if (this.communityCards.length === 0) {
+                        this.communityCards.push(this.deck.deal(), this.deck.deal(), this.deck.deal());
+                    } else {
+                        this.communityCards.push(this.deck.deal());
+                    }
+                    this.updateUI();
+                    setTimeout(dealRemaining, 600);
+                } else {
+                    this.endHandWithReveal(winner);
+                }
+            };
+            setTimeout(dealRemaining, 400);
+        }
     }
 
     endHandWithReveal(winner) {
